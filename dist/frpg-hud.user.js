@@ -43,7 +43,8 @@
     PRODUCTION: "frpg.production",
     PRODUCTION_LAST_UPDATE: "frpg.production-last-update",
     PRODUCTION_LOCK: "frpg.production-lock",
-    QUESTS: "frpg.quests"
+    QUESTS: "frpg.quests",
+    PET_ITEMS_CACHE: "frpg.pet-items-cache"
   };
   const HUD_DISPLAY_MODES = {
     INVENTORY: "INVENTORY",
@@ -539,6 +540,7 @@
     const hudTranslateY = 50 + 4 * (totalRows - 1);
     const hudStyle = settings.useNavbarHud ? `position: absolute;
          top: 44px;
+         width: 100%;
          z-index: 999;
          background: ${darkModeActive ? "#111111" : "#ffffff"};
          padding: 5px 5px 0px 5px;
@@ -2456,6 +2458,12 @@
     }
     updateInventory(updateBatch, { isDetailed: true });
     GM_setValue(STORAGE_KEYS.QUESTS, updatedQuests);
+    if (questDetails.reward) {
+      const rewardItems = Object.keys(questDetails.reward).filter((itemName) => itemNameIdMap.has(itemName)).map((itemName) => inventoryCache[itemNameIdMap.get(itemName)]).filter((item) => item);
+      if (rewardItems.length > 0) {
+        setHudDetails(rewardItems, url);
+      }
+    }
   };
   const questListener = {
     name: "Quest",
@@ -2483,6 +2491,106 @@
     name: "Quests",
     callback: parseQuests,
     urlMatch: [/^quests\.php/],
+    passive: true
+  };
+  const parseViewcharter = (response) => {
+    const parsedResponse = parseHtml(response);
+    const foundItems = parsedResponse.querySelectorAll(".collectindvbtn");
+    if (foundItems.length === 0) return response;
+    const itemNames = [];
+    for (const button of foundItems) {
+      const itemContainer = button.closest(".item-content");
+      const itemLink = itemContainer.querySelector("a.item-link");
+      new URLSearchParams(itemLink.href.split("?")[1]).get("id");
+      const itemName = itemContainer.querySelector(".item-title > strong").innerText.trim();
+      itemContainer.querySelector("img.itemimg").src;
+      parseNumberWithCommas(button.innerText.replace("Found ", ""));
+      itemNames.push(itemName);
+    }
+    setHudItemsByName(itemNames);
+    return response;
+  };
+  const viewcharterListener = {
+    name: "Viewcharter",
+    callback: parseViewcharter,
+    urlMatch: [/^viewcharter\.php/],
+    passive: true
+  };
+  const parseViewexpedition = (response) => {
+    const parsedResponse = parseHtml(response);
+    const foundItems = parsedResponse.querySelectorAll(".collectindvbtn");
+    if (foundItems.length === 0) return response;
+    const itemNames = [];
+    for (const button of foundItems) {
+      const itemContainer = button.closest(".item-content");
+      const itemLink = itemContainer.querySelector("a.item-link");
+      new URLSearchParams(itemLink.href.split("?")[1]).get("id");
+      const itemName = itemContainer.querySelector(".item-title > strong").innerText.trim();
+      itemContainer.querySelector("img.itemimg").src;
+      parseNumberWithCommas(button.innerText.replace("Found ", ""));
+      itemNames.push(itemName);
+    }
+    setHudItemsByName(itemNames);
+    return response;
+  };
+  const viewexpeditionListener = {
+    name: "Viewexpedition",
+    callback: parseViewexpedition,
+    urlMatch: [/^viewexpedition\.php/],
+    passive: true
+  };
+  const parsePet = (response, url) => {
+    if (url.includes("worker.php?go=collectpetitems")) {
+      if (response === "success") {
+        const petItemsCache = GM_getValue(STORAGE_KEYS.PET_ITEMS_CACHE, {});
+        if (Object.keys(petItemsCache).length > 0) {
+          const additiveBatch = {};
+          for (const [itemId, item] of Object.entries(petItemsCache)) {
+            additiveBatch[itemId] = item.count;
+          }
+          updateInventory(additiveBatch, { isAbsolute: false });
+          GM_setValue(STORAGE_KEYS.PET_ITEMS_CACHE, {});
+        }
+      }
+      return response;
+    }
+    const parsedResponse = parseHtml(response);
+    const titles = parsedResponse.querySelectorAll(".content-block-title");
+    let itemsFoundSection = null;
+    for (const title of titles) {
+      if (title.innerText === "Items Found") {
+        itemsFoundSection = title;
+        break;
+      }
+    }
+    if (!itemsFoundSection) return response;
+    const itemsListBlock = itemsFoundSection.nextElementSibling;
+    if (!itemsListBlock || !itemsListBlock.classList.contains("list-block")) return response;
+    const itemLinks = itemsListBlock.querySelectorAll("a.item-link");
+    if (itemLinks.length === 0) return response;
+    const updateBatch = {};
+    const itemNames = [];
+    for (const itemLink of itemLinks) {
+      const itemId = new URLSearchParams(itemLink.href.split("?")[1]).get("id");
+      const itemName = itemLink.querySelector(".item-title > strong").innerText.trim();
+      const itemImage = itemLink.querySelector("img.itemimg").src;
+      const itemCount = parseNumberWithCommas(itemLink.querySelector(".item-after").innerText);
+      updateBatch[itemId] = {
+        id: itemId,
+        name: itemName,
+        image: itemImage,
+        count: itemCount
+      };
+      itemNames.push(itemName);
+    }
+    GM_setValue(STORAGE_KEYS.PET_ITEMS_CACHE, updateBatch);
+    setHudItemsByName(itemNames);
+    return response;
+  };
+  const petListener = {
+    name: "Pet",
+    callback: parsePet,
+    urlMatch: [/^pet\.php/, /^worker\.php.*go=collectpetitems/],
     passive: true
   };
   const interceptXHR = (handler) => {
@@ -2747,7 +2855,10 @@
     troutFarmListener,
     wormHabitatListener,
     questListener,
-    questsListener
+    questsListener,
+    viewcharterListener,
+    viewexpeditionListener,
+    petListener
   ];
   const responseHandler = (response, url, type) => {
     for (const listener of listeners) {
