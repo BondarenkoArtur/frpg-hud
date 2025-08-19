@@ -218,6 +218,7 @@ export const getHudHtml = () => {
     const hudStyle = settings.useNavbarHud ?
         `position: absolute;
          top: 44px;
+         width: 100%;
          z-index: 999;
          background: ${darkModeActive ? "#111111" : "#ffffff"};
          padding: 5px 5px 0px 5px;
