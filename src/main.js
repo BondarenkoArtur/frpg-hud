@@ -22,6 +22,7 @@ import questsListener from "./listeners/quests";
 import viewcharterListener from "./listeners/viewcharter";
 import viewexpeditionListener from "./listeners/viewexpedition";
 import petListener from "./listeners/pet";
+import postofficeListener from "./listeners/postoffice";
 
 import { interceptFetch, interceptXHR } from "./utils/interceptors";
 import { setupEventListeners } from "./utils/listeners";
@@ -54,6 +55,7 @@ const listeners = [
     viewcharterListener,
     viewexpeditionListener,
     petListener,
+    postofficeListener,
 ];
 
 const responseHandler = (response, url, type) => {
