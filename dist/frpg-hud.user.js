@@ -44,7 +44,8 @@
     PRODUCTION_LAST_UPDATE: "frpg.production-last-update",
     PRODUCTION_LOCK: "frpg.production-lock",
     QUESTS: "frpg.quests",
-    PET_ITEMS_CACHE: "frpg.pet-items-cache"
+    PET_ITEMS_CACHE: "frpg.pet-items-cache",
+    MAILBOX: "frpg.mailbox"
   };
   const HUD_DISPLAY_MODES = {
     INVENTORY: "INVENTORY",
@@ -523,6 +524,20 @@
     setEditMode(false);
     updateHudDisplay(true);
   };
+  const updateHudCss = (hudHeight) => {
+    const styleId = "frpg-hud-styles";
+    let styleElement = document.getElementById(styleId);
+    if (!styleElement) {
+      styleElement = document.createElement("style");
+      styleElement.id = styleId;
+      document.head.appendChild(styleElement);
+    }
+    styleElement.textContent = `
+        .pages .page:not([data-page="index-left"]) .page-content {
+            padding-top: ${44 + hudHeight}px !important;
+        }
+    `;
+  };
   unsafeWindow.refreshInventory = refreshInventory;
   unsafeWindow.restoreHudItems = restoreHudItems;
   unsafeWindow.exitEditMode = exitEditMode;
@@ -555,8 +570,7 @@
          transform: translateY(-${hudTranslateY}%) translateX(-8px);
          line-height: 18px;
          z-index: 99999;`;
-    let hudHtml = settings.useNavbarHud ? `<div id="frpg-hud-container" style="position: relative; height: 0;">
-            <div id="frpg-hud" style="${hudStyle}">` : `<div id="frpg-hud" style="${hudStyle}">
+    let hudHtml = settings.useNavbarHud ? `<div id="frpg-hud" style="${hudStyle}">` : `<div id="frpg-hud" style="${hudStyle}">
             ${statsData.join("")}
         <hr>`;
     const hudSegments = [];
@@ -594,7 +608,7 @@
                     <a href="explore.php" class="button" style="margin-left: 2%; height: 22px; line-height: 20px; width: 42%;">Explore</a>
                     ${buttonToShow}
                 </div>`;
-    hudHtml += settings.useNavbarHud ? `</div></div>` : `</div>`;
+    hudHtml += `</div>`;
     return hudHtml;
   };
   const _updateHudDisplay = (forceUpdate = false) => {
@@ -606,21 +620,20 @@
       if (!settings.useNavbarHud) {
         if (forceUpdate) parentElement.innerHTML = statsHtml;
       } else {
-        const existingContainer = document.querySelector("#frpg-hud-container");
+        const existingContainer = document.querySelector("#frpg-hud");
         if (existingContainer) existingContainer.remove();
       }
       return;
     }
     const hudElement = getHudHtml();
     if (settings.useNavbarHud) {
-      const existingContainer = document.querySelector("#frpg-hud-container");
+      const existingContainer = document.querySelector("#frpg-hud");
       if (existingContainer) existingContainer.remove();
       parentElement.insertAdjacentHTML("beforebegin", hudElement);
       requestAnimationFrame(() => {
-        const container = document.querySelector("#frpg-hud-container");
         const hud = document.querySelector("#frpg-hud");
-        if (container && hud && hud.offsetHeight > 0) {
-          container.style.height = hud.offsetHeight + "px";
+        if (hud && hud.offsetHeight > 0) {
+          updateHudCss(hud.offsetHeight);
         }
       });
     } else {
@@ -1657,6 +1670,46 @@
       listener: handleQuestClaim
     }
   ];
+  const handleCollectMailItem = (response, parameters) => {
+    if (response !== "success") return;
+    const itemId = parameters.get("id");
+    const mailboxCache = GM_getValue(STORAGE_KEYS.MAILBOX, {});
+    const mailItem = mailboxCache[itemId];
+    if (!mailItem) return;
+    updateInventory({ [mailItem.name]: mailItem.count }, {
+      isAbsolute: false,
+      resolveNames: true,
+      processCraftworks: true
+    });
+    delete mailboxCache[itemId];
+    GM_setValue(STORAGE_KEYS.MAILBOX, mailboxCache);
+  };
+  const handleCollectAllMailItems = (response) => {
+    if (response !== "success") return;
+    const mailboxCache = GM_getValue(STORAGE_KEYS.MAILBOX, {});
+    const updateBatch = {};
+    for (const mailItem of Object.values(mailboxCache)) {
+      updateBatch[mailItem.name] = (updateBatch[mailItem.name] || 0) + mailItem.count;
+    }
+    if (Object.keys(updateBatch).length > 0) {
+      updateInventory(updateBatch, {
+        isAbsolute: false,
+        resolveNames: true,
+        processCraftworks: true
+      });
+    }
+    GM_setValue(STORAGE_KEYS.MAILBOX, {});
+  };
+  const mailboxWorkers = [
+    {
+      action: "collectmailitem",
+      listener: handleCollectMailItem
+    },
+    {
+      action: "collectallmailitems",
+      listener: handleCollectAllMailItems
+    }
+  ];
   const workers = [
     ...explorationWorkers,
     ...fishingWorkers,
@@ -1667,7 +1720,8 @@
     ...miscWorkers,
     ...farmWorkers,
     ...beachballWorkers,
-    ...questWorkers
+    ...questWorkers,
+    ...mailboxWorkers
   ];
   const activeWorkers = /* @__PURE__ */ new Map();
   const workerActions = /* @__PURE__ */ new Set();
@@ -2300,19 +2354,61 @@
     const seedId = selectElement.value;
     const cropName = (_a2 = selectElement.selectedOptions[0].dataset.name) == null ? void 0 : _a2.slice(0, -6);
     if (!cropName) {
-      targetElement.innerText = "No crop selected";
+      const growingCropsInventory = getCurrentlyGrowingCropsInventory();
+      if (growingCropsInventory.length > 0) {
+        targetElement.innerText = growingCropsInventory.join(", ");
+      } else {
+        targetElement.innerText = "No crop selected";
+      }
       return;
     }
     const cropId = seedCrop[seedId] || null;
     const cropInventory = cropId === null ? "??" : ((_b = inventoryCache[cropId]) == null ? void 0 : _b.count) ?? "??";
     targetElement.innerText = `${cropInventory} ${cropName} in inventory`;
   };
+  const getCurrentlyGrowingCropsInventory = () => {
+    try {
+      const growingCrops = /* @__PURE__ */ new Set();
+      const condensedCrops = document.querySelectorAll(".concrop .chip-media img");
+      if (condensedCrops.length > 0) {
+        condensedCrops.forEach((img) => {
+          const cropName = img.alt;
+          if (cropName) growingCrops.add(cropName);
+        });
+      } else {
+        const cropItems = document.querySelectorAll(".cropitem img");
+        cropItems.forEach((img) => {
+          const alt = img.alt;
+          if (alt && alt !== "Plant" && !alt.includes("Empty")) {
+            growingCrops.add(alt);
+          }
+        });
+      }
+      const cropInventories = [];
+      growingCrops.forEach((cropName) => {
+        let cropCount = "??";
+        for (const [, item] of Object.entries(inventoryCache)) {
+          if (item.name === cropName) {
+            cropCount = item.count ?? "??";
+            break;
+          }
+        }
+        cropInventories.push(`${cropCount} ${cropName} in inventory`);
+      });
+      return cropInventories;
+    } catch (error) {
+      console.warn("Could not parse growing crops inventory:", error);
+      return [];
+    }
+  };
   unsafeWindow.updateCropCount = updateCropCount;
   const parseFarm = (response) => {
     const parsedResponse = parseHtml(response);
     const cropSelect = parsedResponse.querySelector("select.seedid");
-    cropSelect.setAttribute("onchange", "updateCropCount(event)");
-    updateCropCount({ target: cropSelect });
+    if (cropSelect) {
+      cropSelect.setAttribute("onchange", "updateCropCount(event)");
+      updateCropCount({ target: cropSelect });
+    }
     parseProductionRows(parsedResponse);
     return parsedResponse.innerHTML;
   };
@@ -2593,6 +2689,39 @@
     urlMatch: [/^pet\.php/, /^worker\.php.*go=collectpetitems/],
     passive: true
   };
+  const parseMailbox = (response) => {
+    const parsedMailbox = parseHtml(response);
+    const mailItems = parsedMailbox.querySelectorAll(".collectbtn");
+    const updatedMailbox = {};
+    const hudItems2 = [];
+    for (const item of mailItems) {
+      const itemId = item.getAttribute("data-id");
+      if (!itemId) continue;
+      const name = item.querySelector(".item-title > strong").innerText;
+      const image = item.querySelector(".item-media > img").src;
+      const countText = item.querySelector(".item-after").innerText;
+      const count = parseNumberWithCommas(countText.replace("x", ""));
+      const mailItem = {
+        id: itemId,
+        name,
+        image,
+        count
+      };
+      updatedMailbox[itemId] = mailItem;
+      hudItems2.push(mailItem);
+    }
+    GM_setValue(STORAGE_KEYS.MAILBOX, updatedMailbox);
+    if (hudItems2.length > 0) {
+      setHudDetails(hudItems2, "postoffice.php");
+    }
+    return response;
+  };
+  const postofficeListener = {
+    name: "Post Office",
+    callback: parseMailbox,
+    urlMatch: [/^postoffice\.php/],
+    passive: true
+  };
   const interceptXHR = (handler) => {
     const originalOpen = XMLHttpRequest.prototype.open;
     const originalSend = XMLHttpRequest.prototype.send;
@@ -2858,7 +2987,8 @@
     questsListener,
     viewcharterListener,
     viewexpeditionListener,
-    petListener
+    petListener,
+    postofficeListener
   ];
   const responseHandler = (response, url, type) => {
     for (const listener of listeners) {
