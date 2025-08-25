@@ -3,6 +3,9 @@ import { inventoryCache } from "../utils/inventory";
 import { parseHtml } from "../utils/misc";
 import { parseProductionRows } from "../utils/xfarm";
 
+// Store current crops data
+let currentCropsData = null;
+
 
 const updateCropCount = (event) => {
     const selectElement = event.target;
@@ -30,41 +33,31 @@ const updateCropCount = (event) => {
 
 const getCurrentlyGrowingCropsInventory = () => {
     try {
-        const growingCrops = new Set();
-        
-        // Check condensed view first
-        const condensedCrops = document.querySelectorAll('.concrop .chip-media img');
-        if (condensedCrops.length > 0) {
-            condensedCrops.forEach(img => {
-                const cropName = img.alt;
-                if (cropName) growingCrops.add(cropName);
-            });
-        } else {
-            // Fallback to regular view
-            const cropItems = document.querySelectorAll('.cropitem img');
-            cropItems.forEach(img => {
-                const alt = img.alt;
-                if (alt && alt !== 'Plant' && !alt.includes('Empty')) {
-                    growingCrops.add(alt);
-                }
-            });
+        if (!currentCropsData) {
+            return [];
         }
         
-        // Get inventory counts for growing crops
-        const cropInventories = [];
-        growingCrops.forEach(cropName => {
-            // Find crop ID by name from inventoryCache
-            let cropCount = "??";
-            for (const [, item] of Object.entries(inventoryCache)) {
-                if (item.name === cropName) {
-                    cropCount = item.count ?? "??";
-                    break;
+        const cropInventories = new Set();
+        
+        // Parse crop images from both condensed and full views
+        const allCropImages = currentCropsData.querySelectorAll('#crops-condensed img, #crops img.cropitem');
+        
+        allCropImages.forEach(img => {
+            const srcMatch = img.src.match(/\/img\/items\/(\d+)\./i);
+            if (srcMatch) {
+                const imageId = srcMatch[1];
+                // Find crop and get count from inventory cache
+                for (const [, item] of Object.entries(inventoryCache)) {
+                    if (item.image && item.image.includes(`/${imageId}.`)) {
+                        const cropCount = item.count ?? "??";
+                        cropInventories.add(`${cropCount} ${item.name} in inventory`);
+                        break;
+                    }
                 }
             }
-            cropInventories.push(`${cropCount} ${cropName} in inventory`);
         });
         
-        return cropInventories;
+        return Array.from(cropInventories);
     } catch (error) {
         console.warn('Could not parse growing crops inventory:', error);
         return [];
@@ -74,6 +67,13 @@ unsafeWindow.updateCropCount = updateCropCount;
 
 const parseFarm = (response) => {
     const parsedResponse = parseHtml(response);
+    
+    // Store crop data from initial farm response
+    const cropArea = parsedResponse.querySelector('#croparea');
+    if (cropArea) {
+        currentCropsData = parsedResponse;
+    }
+    
     const cropSelect = parsedResponse.querySelector("select.seedid");
     if (cropSelect) {
         cropSelect.setAttribute("onchange", "updateCropCount(event)");
@@ -85,6 +85,11 @@ const parseFarm = (response) => {
     return parsedResponse.innerHTML;
 };
 
+const parsePanelCrops = (response) => {
+    currentCropsData = parseHtml(response);
+    return response;
+};
+
 const xfarmListener = {
     name: "Farm",
     callback: parseFarm,
@@ -92,4 +97,11 @@ const xfarmListener = {
     passive: false,
 };
 
-export default xfarmListener;
+const panelCropsListener = {
+    name: "Panel Crops",
+    callback: parsePanelCrops,
+    urlMatch: [/^panel_crops\.php/],
+    passive: true,
+};
+
+export default [xfarmListener, panelCropsListener];
