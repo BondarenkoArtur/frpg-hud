@@ -2347,6 +2347,7 @@
     }
     GM_setValue(STORAGE_KEYS.PRODUCTION, updatedProduction);
   };
+  let currentCropsData = null;
   const updateCropCount = (event) => {
     var _a2, _b;
     const selectElement = event.target;
@@ -2368,34 +2369,25 @@
   };
   const getCurrentlyGrowingCropsInventory = () => {
     try {
-      const growingCrops = /* @__PURE__ */ new Set();
-      const condensedCrops = document.querySelectorAll(".concrop .chip-media img");
-      if (condensedCrops.length > 0) {
-        condensedCrops.forEach((img) => {
-          const cropName = img.alt;
-          if (cropName) growingCrops.add(cropName);
-        });
-      } else {
-        const cropItems = document.querySelectorAll(".cropitem img");
-        cropItems.forEach((img) => {
-          const alt = img.alt;
-          if (alt && alt !== "Plant" && !alt.includes("Empty")) {
-            growingCrops.add(alt);
-          }
-        });
+      if (!currentCropsData) {
+        return [];
       }
-      const cropInventories = [];
-      growingCrops.forEach((cropName) => {
-        let cropCount = "??";
-        for (const [, item] of Object.entries(inventoryCache)) {
-          if (item.name === cropName) {
-            cropCount = item.count ?? "??";
-            break;
+      const cropInventories = /* @__PURE__ */ new Set();
+      const allCropImages = currentCropsData.querySelectorAll("#crops-condensed img, #crops img.cropitem");
+      allCropImages.forEach((img) => {
+        const srcMatch = img.src.match(/\/img\/items\/(\d+)\./i);
+        if (srcMatch) {
+          const imageId = srcMatch[1];
+          for (const [, item] of Object.entries(inventoryCache)) {
+            if (item.image && item.image.includes(`/${imageId}.`)) {
+              const cropCount = item.count ?? "??";
+              cropInventories.add(`${cropCount} ${item.name} in inventory`);
+              break;
+            }
           }
         }
-        cropInventories.push(`${cropCount} ${cropName} in inventory`);
       });
-      return cropInventories;
+      return Array.from(cropInventories);
     } catch (error) {
       console.warn("Could not parse growing crops inventory:", error);
       return [];
@@ -2404,6 +2396,10 @@
   unsafeWindow.updateCropCount = updateCropCount;
   const parseFarm = (response) => {
     const parsedResponse = parseHtml(response);
+    const cropArea = parsedResponse.querySelector("#croparea");
+    if (cropArea) {
+      currentCropsData = parsedResponse;
+    }
     const cropSelect = parsedResponse.querySelector("select.seedid");
     if (cropSelect) {
       cropSelect.setAttribute("onchange", "updateCropCount(event)");
@@ -2412,12 +2408,23 @@
     parseProductionRows(parsedResponse);
     return parsedResponse.innerHTML;
   };
+  const parsePanelCrops = (response) => {
+    currentCropsData = parseHtml(response);
+    return response;
+  };
   const xfarmListener = {
     name: "Farm",
     callback: parseFarm,
     urlMatch: [/^xfarm\.php\?id=/],
     passive: false
   };
+  const panelCropsListener = {
+    name: "Panel Crops",
+    callback: parsePanelCrops,
+    urlMatch: [/^panel_crops\.php/],
+    passive: true
+  };
+  const xfarmListeners = [xfarmListener, panelCropsListener];
   const parseSawmill = (response) => {
     const parsedResponse = parseHtml(response);
     const sections = Array.from(parsedResponse.querySelectorAll("li > .item-content"));
@@ -2708,7 +2715,12 @@
         count
       };
       updatedMailbox[itemId] = mailItem;
-      hudItems2.push(mailItem);
+      const inventoryItemId = itemNameIdMap.get(name);
+      const hudItem = {
+        ...mailItem,
+        id: inventoryItemId || itemId
+      };
+      hudItems2.push(hudItem);
     }
     GM_setValue(STORAGE_KEYS.MAILBOX, updatedMailbox);
     if (hudItems2.length > 0) {
@@ -2966,7 +2978,7 @@
   const listeners = [
     workerListener,
     hudListener,
-    xfarmListener,
+    ...xfarmListeners,
     areaListener,
     homeListener,
     itemListener,
