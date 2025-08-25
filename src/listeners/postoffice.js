@@ -2,6 +2,7 @@ import { parseHtml } from "../utils/misc";
 import { STORAGE_KEYS } from "../constants";
 import { parseNumberWithCommas } from "../utils/numbers";
 import { setHudDetails } from "../utils/hud";
+import { itemNameIdMap } from "../utils/inventory";
 
 const parseMailbox = (response) => {
     const parsedMailbox = parseHtml(response);
@@ -26,7 +27,14 @@ const parseMailbox = (response) => {
         };
 
         updatedMailbox[itemId] = mailItem;
-        hudItems.push(mailItem);
+        
+        const inventoryItemId = itemNameIdMap.get(name);
+        const hudItem = {
+            ...mailItem,
+            id: inventoryItemId || itemId,
+        };
+        
+        hudItems.push(hudItem);
     }
 
     GM_setValue(STORAGE_KEYS.MAILBOX, updatedMailbox);
