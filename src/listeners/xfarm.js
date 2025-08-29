@@ -43,12 +43,13 @@ const getCurrentlyGrowingCropsInventory = () => {
         const allCropImages = currentCropsData.querySelectorAll('#crops-condensed img, #crops img.cropitem');
         
         allCropImages.forEach(img => {
-            const srcMatch = img.src.match(/\/img\/items\/(\d+)\./i);
-            if (srcMatch) {
-                const imageId = srcMatch[1];
-                // Find crop and get count from inventory cache
+            const match = img.src.match(/\/img\/items\/(\w+)\./i);
+            if (match) {
+                const identifier = match[1];
+                // Find crop by image identifier (numeric ID or name)
                 for (const [, item] of Object.entries(inventoryCache)) {
-                    if (item.image && item.image.includes(`/${imageId}.`)) {
+                    if (item.image && (item.image.includes(`/${identifier}.`) || 
+                        item.name.toLowerCase().includes(identifier.toLowerCase()))) {
                         const cropCount = item.count ?? "??";
                         cropInventories.add(`${cropCount} ${item.name} in inventory`);
                         break;
