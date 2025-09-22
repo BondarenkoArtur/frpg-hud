@@ -658,7 +658,7 @@
       return true;
     };
   };
-  const getApplicableInventory = (recipeDetails, triggerItem, bypassReserve) => {
+  const getApplicableInventory = (recipeDetails, triggerItem, applicableCount, bypassReserve) => {
     var _a2;
     const applicableInventory = {};
     const globalReserve = getGlobalReserveAmount();
@@ -667,13 +667,15 @@
       const itemCount = inventoryCache[materialId].count;
       applicableInventory[materialId] = { count: itemCount };
       if (["Iron", "Nails"].includes(materialName)) continue;
-      if (materialName === triggerItem || !bypassReserve) {
+      if (materialName === triggerItem) {
+        applicableInventory[materialId].count = applicableCount;
+      } else if (!bypassReserve) {
         applicableInventory[materialId].count = Math.max(0, itemCount - (((_a2 = quickActions[materialName]) == null ? void 0 : _a2.reserve) ?? globalReserve));
       }
     }
     return applicableInventory;
   };
-  const handleItemCraft$1 = (itemName, action, cleanup) => {
+  const handleItemCraft$1 = (itemName, applicableCount, action, cleanup) => {
     const targetItemName = action.item;
     if (targetItemName === "Select") {
       myApp.addNotification({ title: "No item selected to craft!", subtitle: "Please go to item details and select the item to craft into" });
@@ -692,7 +694,7 @@
       return cleanup(false) && refreshInventory();
     }
     cancelHudRemoval(itemNameIdMap.get(targetItemName));
-    const applicableInventory = getApplicableInventory(recipe, itemName, action.bypassReserve ?? false);
+    const applicableInventory = getApplicableInventory(recipe, itemName, applicableCount, action.bypassReserve ?? false);
     const maxCraftable = getMaxCraftable(recipe, applicableInventory);
     const craftCount = Math.min(maxCraftable, inventoryLeft);
     if (craftCount === 0) {
@@ -1052,7 +1054,7 @@
     if (action === "send") {
       return handleItemSend$1(itemId, applicableCount, itemAction, cleanup);
     } else if (action === "craft") {
-      return handleItemCraft$1(itemName, itemAction, cleanup);
+      return handleItemCraft$1(itemName, applicableCount, itemAction, cleanup);
     } else if (action === "use") {
       return handleItemUse(itemName, applicableCount, cleanup);
     } else if (action === "sell") {
@@ -1443,7 +1445,7 @@
     }
   ];
   const handleItemSend = (response, parameters) => {
-    if (response !== "success") return;
+    if (!response.includes("wk__in_mailbox")) return;
     const itemId = parameters.get("id");
     const itemCount = parameters.get("qty");
     updateInventory({ [itemId]: -itemCount }, { isAbsolute: false });
@@ -2375,11 +2377,11 @@
       const cropInventories = /* @__PURE__ */ new Set();
       const allCropImages = currentCropsData.querySelectorAll("#crops-condensed img, #crops img.cropitem");
       allCropImages.forEach((img) => {
-        const srcMatch = img.src.match(/\/img\/items\/(\d+)\./i);
-        if (srcMatch) {
-          const imageId = srcMatch[1];
+        const match = img.src.match(/\/img\/items\/(\w+)\./i);
+        if (match) {
+          const identifier = match[1];
           for (const [, item] of Object.entries(inventoryCache)) {
-            if (item.image && item.image.includes(`/${imageId}.`)) {
+            if (item.image && (item.image.includes(`/${identifier}.`) || item.name.toLowerCase().includes(identifier.toLowerCase()))) {
               const cropCount = item.count ?? "??";
               cropInventories.add(`${cropCount} ${item.name} in inventory`);
               break;
