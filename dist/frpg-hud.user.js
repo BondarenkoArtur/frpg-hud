@@ -524,6 +524,8 @@
     setEditMode(false);
     updateHudDisplay(true);
   };
+  let lastTotalPadding = null;
+  let lastSearchbarTop = null;
   const updateHudCss = (hudHeight) => {
     const styleId = "frpg-hud-styles";
     let styleElement = document.getElementById(styleId);
@@ -532,11 +534,47 @@
       styleElement.id = styleId;
       document.head.appendChild(styleElement);
     }
+    if (hudHeight === 0) {
+      if (lastTotalPadding !== null || lastSearchbarTop !== null) {
+        styleElement.textContent = "";
+        lastTotalPadding = null;
+        lastSearchbarTop = null;
+      }
+      return;
+    }
+    const getBasePadding = () => {
+      const activePage = document.querySelector(".view-main .page.page-from-right-to-center") || document.querySelector(".view-main .page.page-on-center");
+      const hasSearchbar = (activePage == null ? void 0 : activePage.querySelector(".searchbar")) !== null;
+      const baseNavbarHeight = 44;
+      const searchbarHeight = 44;
+      if (hasSearchbar) {
+        return baseNavbarHeight + searchbarHeight;
+      }
+      return baseNavbarHeight;
+    };
+    const basePadding = getBasePadding();
+    const totalPadding = basePadding + hudHeight;
+    const searchbarTop = 44 + hudHeight;
+    if (totalPadding === lastTotalPadding && searchbarTop === lastSearchbarTop) {
+      return;
+    }
+    lastTotalPadding = totalPadding;
+    lastSearchbarTop = searchbarTop;
     styleElement.textContent = `
         .pages .page:not([data-page="index-left"]) .page-content {
-            padding-top: ${44 + hudHeight}px !important;
+            padding-top: ${totalPadding}px !important;
+        }
+        
+        .navbar-fixed .page > .searchbar,
+        .navbar-through .page > .searchbar,
+        .navbar-fixed > .searchbar,
+        .navbar-through > .searchbar {
+            top: ${searchbarTop}px !important;
         }
     `;
+  };
+  const cleanupHudCss = () => {
+    updateHudCss(0);
   };
   unsafeWindow.refreshInventory = refreshInventory;
   unsafeWindow.restoreHudItems = restoreHudItems;
@@ -596,33 +634,43 @@
       hudSegments.push("<span>HUD empty!</span>");
     }
     hudHtml += hudSegments.join("<hr />");
-    const continueButton = `<a class="button" style="margin-left: 2%; height: 22px; line-height: 20px; white-space: nowrap;" href="${hudUrl}">C</a>`;
-    const restoreButton = `<a class="button" style="margin-left: 2%; height: 22px; line-height: 20px; white-space: nowrap;" onclick="restoreHudItems()">R</a>`;
-    const exitEditModeButton = `<a class="button" style="margin-left: 2%; height: 22px; line-height: 20px; white-space: nowrap;" onclick="exitEditMode()">E</a>`;
+    const continueButton = `<a class="button" style="height: 22px; line-height: 20px; width: 32px; font-size: 11px;" href="${hudUrl}">C</a>`;
+    const restoreButton = `<a class="button" style="height: 22px; line-height: 20px; width: 32px; font-size: 11px;" onclick="restoreHudItems()">R</a>`;
+    const exitEditModeButton = `<a class="button" style="height: 22px; line-height: 20px; width: 32px; font-size: 11px;" onclick="exitEditMode()">E</a>`;
     let buttonToShow;
     if (editMode) buttonToShow = exitEditModeButton;
     else if (hudStash !== null && settings.hudStashEnabled) buttonToShow = restoreButton;
     else buttonToShow = continueButton;
-    hudHtml += `<div style="display: flex; margin-top: 5px; margin-bottom: ${settings.useNavbarHud ? 5 : 15}px;">
-                    <a class="button" style="height: 22px; line-height: 20px; width: 42%;" onclick="refreshInventory()">Refresh</a>
-                    <a href="explore.php" class="button" style="margin-left: 2%; height: 22px; line-height: 20px; width: 42%;">Explore</a>
+    hudHtml += `<div style="display: flex; gap: 2px; margin-top: 5px; margin-bottom: ${settings.useNavbarHud ? 5 : 15}px;">
+                    <a class="button" style="height: 22px; line-height: 20px; flex: 1; font-size: 11px;" onclick="refreshInventory()">Refresh</a>
+                    <a href="explore.php" class="button" style="height: 22px; line-height: 20px; flex: 1; font-size: 11px;">Explore</a>
                     ${buttonToShow}
                 </div>`;
     hudHtml += `</div>`;
     return hudHtml;
   };
+  let lastHudMode = null;
   const _updateHudDisplay = (forceUpdate = false) => {
     if (document.hidden && !forceUpdate) return;
+    if (lastHudMode !== null && lastHudMode !== settings.useNavbarHud) {
+      const existingNavbarHud = document.querySelector("#frpg-hud");
+      if (existingNavbarHud) existingNavbarHud.remove();
+      const statsZone = document.querySelector("#statszone");
+      if (statsZone) statsZone.innerHTML = statsHtml;
+      cleanupHudCss();
+    }
+    lastHudMode = settings.useNavbarHud;
     const selector = settings.useNavbarHud ? ".view-main .pages" : "#statszone";
     const parentElement = document.querySelector(selector);
     if (!parentElement) return;
     if (!hudStatus) {
-      if (!settings.useNavbarHud) {
-        if (forceUpdate) parentElement.innerHTML = statsHtml;
+      if (!settings.useNavbarHud && forceUpdate) {
+        parentElement.innerHTML = statsHtml;
       } else {
         const existingContainer = document.querySelector("#frpg-hud");
         if (existingContainer) existingContainer.remove();
       }
+      cleanupHudCss();
       return;
     }
     const hudElement = getHudHtml();
@@ -638,6 +686,7 @@
       });
     } else {
       parentElement.innerHTML = hudElement;
+      cleanupHudCss();
     }
   };
   const updateHudDisplay = debounceHudUpdate(_updateHudDisplay, 100);
