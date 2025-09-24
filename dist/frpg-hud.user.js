@@ -113,8 +113,10 @@
     // Pea
     "12": "11",
     // Pepper
-    "410": "409"
+    "410": "409",
     // Pine
+    "1307": "1276"
+    // Sugar Cane
   };
   const staminaItems = ["Apple", "Orange Juice"];
   const mealTimeExceptions = {
